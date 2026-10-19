@@ -1,0 +1,53 @@
+name: KRX 당일 시세 수집 (상천정리)
+
+on:
+  schedule:
+    - cron: '52 6 * * 1-5'   # 15:52 KST 1차 (종가 확정 후)
+    - cron: '47 7 * * 1-5'   # 16:47 KST 2차 (1차가 늦거나 KRX 갱신 전이었을 때)
+    - cron: '23 9 * * 1-5'   # 18:23 KST 최종 (시간외 단일가 끝난 뒤)
+  workflow_dispatch:
+    inputs:
+      dates:
+        description: '받을 날짜 YYYYMMDD (쉼표 구분). 비우면 오늘 + 최근 빠진 날'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: krx-daily
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 패키지 설치
+        run: pip install pandas pyarrow requests
+
+      - name: KRX 시세 받기
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+          DATES: ${{ github.event.inputs.dates }}
+        run: python fetch_today.py
+
+      - name: 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "변경 없음"
+          else
+            git commit -m "KRX 시세 $(TZ=Asia/Seoul date +%Y-%m-%d\ %H:%M)"
+            git push
+          fi
