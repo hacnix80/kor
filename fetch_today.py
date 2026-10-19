@@ -80,7 +80,12 @@ def req(s, method, url, **kw):
 def login():
     kid, kpw = os.environ.get('KRX_ID', ''), os.environ.get('KRX_PW', '')
     if not kid or not kpw:
-        fail('KRX_ID / KRX_PW secret 이 없습니다. 저장소 Settings > Secrets and variables > Actions 에 추가하세요.')
+        missing = [n for n, v in (('KRX_ID', kid), ('KRX_PW', kpw)) if not v]
+        hint = ''
+        if os.environ.get('KRX_IN_VARS') == 'true':
+            hint = ' Variables 탭에 들어가 있습니다. Secrets 탭으로 옮기고 Variables 쪽 값은 지우세요.'
+        fail(f'Actions secret 을 못 찾았습니다: {", ".join(missing)}. '
+             f'Settings > Secrets and variables > Actions > Secrets 탭 > Repository secrets 에 있어야 합니다.{hint}')
     s = requests.Session()
     s.headers.update({'User-Agent': UA})
     req(s, 'GET', LOGIN_PAGE)

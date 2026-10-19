@@ -38,6 +38,7 @@ jobs:
           KRX_ID: ${{ secrets.KRX_ID }}
           KRX_PW: ${{ secrets.KRX_PW }}
           DATES: ${{ github.event.inputs.dates }}
+          KRX_IN_VARS: ${{ vars.KRX_ID != '' || vars.KRX_PW != '' }}
         run: python fetch_today.py
 
       - name: 커밋
