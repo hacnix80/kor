@@ -78,7 +78,8 @@ def req(s, method, url, **kw):
 
 
 def login():
-    kid, kpw = os.environ.get('KRX_ID', ''), os.environ.get('KRX_PW', '')
+    # 붙여 넣을 때 딸려 온 앞뒤 공백·줄바꿈은 뺀다
+    kid, kpw = os.environ.get('KRX_ID', '').strip(), os.environ.get('KRX_PW', '').strip()
     if not kid or not kpw:
         missing = [n for n, v in (('KRX_ID', kid), ('KRX_PW', kpw)) if not v]
         hint = ''
