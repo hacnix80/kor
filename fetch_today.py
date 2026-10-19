@@ -49,6 +49,18 @@ def log(*a):
     print(*a, flush=True)
 
 
+def gh_note(level, msg):
+    """GitHub Actions 주석으로도 남긴다(실행 화면 요약과 API에서 바로 보인다)."""
+    if os.environ.get('GITHUB_ACTIONS'):
+        print(f'::{level}::' + str(msg).replace('\r', ' ').replace('\n', ' ')[:900], flush=True)
+
+
+def fail(msg):
+    log(msg)
+    gh_note('error', msg)
+    sys.exit(1)
+
+
 def req(s, method, url, **kw):
     """TLS 검증을 먼저 시도하고, KRX 인증서 문제로 실패할 때만 검증 없이 다시 시도한다."""
     global VERIFY
@@ -68,7 +80,7 @@ def req(s, method, url, **kw):
 def login():
     kid, kpw = os.environ.get('KRX_ID', ''), os.environ.get('KRX_PW', '')
     if not kid or not kpw:
-        sys.exit('KRX_ID / KRX_PW secret 이 없습니다. 저장소 Settings > Secrets and variables > Actions 에 추가하세요.')
+        fail('KRX_ID / KRX_PW secret 이 없습니다. 저장소 Settings > Secrets and variables > Actions 에 추가하세요.')
     s = requests.Session()
     s.headers.update({'User-Agent': UA})
     req(s, 'GET', LOGIN_PAGE)
@@ -80,7 +92,7 @@ def login():
         try:
             return r.json()
         except ValueError:
-            sys.exit(f'KRX 로그인 응답을 읽지 못했습니다 (HTTP {r.status_code}).')
+            fail(f'KRX 로그인 응답을 읽지 못했습니다 (HTTP {r.status_code}): {r.text[:200]}')
 
     j = post()
     code = j.get('_error_code', '')
@@ -89,9 +101,9 @@ def login():
         j = post()
         code = j.get('_error_code', '')
     if code == 'CD010':
-        sys.exit('KRX 비밀번호 변경이 필요합니다. data.krx.co.kr 에서 비밀번호를 바꾼 뒤 KRX_PW secret 도 바꿔 주세요.')
+        fail('KRX 비밀번호 변경이 필요합니다. data.krx.co.kr 에서 비밀번호를 바꾼 뒤 KRX_PW secret 도 바꿔 주세요.')
     if code != 'CD001':
-        sys.exit(f'KRX 로그인 실패 ({code}): {j.get("_error_message", "")}')
+        fail(f'KRX 로그인 실패 ({code}): {j.get("_error_message", "")}')
     log('KRX 로그인 성공')
     s.headers.update({'Referer': REFERER, 'X-Requested-With': 'XMLHttpRequest',
                       'Accept': 'application/json, text/javascript, */*; q=0.01'})
@@ -104,18 +116,18 @@ def fetch(s, ymd):
             'trdDd': ymd, 'share': '1', 'money': '1', 'csvxls_isNo': 'false'}
     r = req(s, 'POST', DATA_URL, data=data)
     if r.status_code != 200:
-        sys.exit(f'{ymd}: KRX 응답 HTTP {r.status_code}: {r.text[:300]}')
+        fail(f'{ymd}: KRX 응답 HTTP {r.status_code}: {r.text[:300]}')
     try:
         j = r.json()
     except ValueError:
-        sys.exit(f'{ymd}: KRX 응답이 JSON 이 아닙니다(로그인 만료?): {r.text[:300]}')
+        fail(f'{ymd}: KRX 응답이 JSON 이 아닙니다(로그인 만료?): {r.text[:300]}')
     rows = j.get('OutBlock_1') or []
     if not rows:
         return None
     df = pd.DataFrame(rows)
     miss = [c for c in COLS if c not in df.columns]
     if miss:
-        sys.exit(f'{ymd}: KRX 응답에 열이 없습니다: {miss}')
+        fail(f'{ymd}: KRX 응답에 열이 없습니다: {miss}')
     df = df[list(COLS)].rename(columns=COLS)
     for c in FLOAT_COLS:
         df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', ''), errors='coerce').astype('float64')
@@ -212,7 +224,9 @@ def main():
                                 'fetched_at': now.isoformat(timespec='seconds')}
         up = int((df['ChangesRatio'] >= 29.5).sum())
         tm = int((df['Volume'] >= 10_000_000).sum())
-        log(f'{ymd}: {len(df)}종목 저장{"" if changed else "(변화 없음)"} · 상한가 {up} · 천만주 {tm} · 최종값 {final}')
+        msg = f'{ymd}: {len(df)}종목 저장{"" if changed else "(변화 없음)"} · 상한가 {up} · 천만주 {tm} · 최종값 {final}'
+        log(msg)
+        gh_note('notice', msg)
 
     idx['latest'] = max(idx['days']) if idx['days'] else None
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -221,4 +235,9 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # 예상 못 한 오류도 주석으로 남긴다
+        fail(f'예상 못 한 오류 {type(e).__name__}: {e}')
